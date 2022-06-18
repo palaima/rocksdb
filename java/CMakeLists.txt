@@ -539,6 +539,11 @@ set(JAVA_TEST_RUNNING_CLASSES
 
 include(FindJava)
 include(UseJava)
+
+set(JAVA_AWT_LIBRARY NotNeeded)
+set(JAVA_JVM_LIBRARY NotNeeded)
+set(JAVA_INCLUDE_PATH2 NotNeeded)
+set(JAVA_AWT_INCLUDE_PATH NotNeeded)
 find_package(JNI)
 
 include_directories(${JNI_INCLUDE_DIRS})
@@ -789,21 +794,28 @@ if(NOT MSVC)
   set_property(TARGET ${ROCKSDB_STATIC_LIB} PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
-set(ROCKSDBJNI_STATIC_LIB rocksdbjni${ARTIFACT_SUFFIX})
-if(MINGW)
-  # Build mingw only as staic library.
-  add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
-else()
-  add_library(${ROCKSDBJNI_STATIC_LIB} SHARED ${JNI_NATIVE_SOURCES})
+if(NOT ${CMAKE_SYSTEM_NAME} MATCHES "Android")
+  set(ROCKSDBJNI_STATIC_LIB "rocksdbjni${ARTIFACT_SUFFIX}")
+  if(MINGW)
+    # Build mingw only as staic library.
+    add_library(${ROCKSDBJNI_STATIC_LIB} ${JNI_NATIVE_SOURCES})
+  else()
+    add_library(${ROCKSDBJNI_STATIC_LIB} SHARED ${JNI_NATIVE_SOURCES})
+  endif()
+  add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
+  target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 endif()
-add_dependencies(${ROCKSDBJNI_STATIC_LIB} rocksdbjni_headers)
-target_link_libraries(${ROCKSDBJNI_STATIC_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
 
 if(NOT MINGW)
-  set(ROCKSDBJNI_SHARED_LIB rocksdbjni-shared${ARTIFACT_SUFFIX})
+  if(${CMAKE_SYSTEM_NAME} MATCHES "Android")
+    # On Android the shared lib is used in generating the JNI
+    set(ROCKSDBJNI_SHARED_LIB "rocksdbjni${ARTIFACT_SUFFIX}")
+  else ()
+    set(ROCKSDBJNI_SHARED_LIB "rocksdbjni-shared${ARTIFACT_SUFFIX}")
+  endif()
   add_library(${ROCKSDBJNI_SHARED_LIB} SHARED ${JNI_NATIVE_SOURCES})
   add_dependencies(${ROCKSDBJNI_SHARED_LIB} rocksdbjni_headers)
-  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${ROCKSDB_LIB})
+  target_link_libraries(${ROCKSDBJNI_SHARED_LIB} ${ROCKSDB_STATIC_LIB} ${THIRDPARTY_LIBS} ${SYSTEM_LIBS})
 
   set_target_properties(
     ${ROCKSDBJNI_SHARED_LIB}
@@ -875,14 +887,25 @@ endif()
 
 get_target_property(ROCKS_JAR_FILE rocksdbjni_classes JAR_FILE)
 
+if (${CMAKE_SYSTEM_NAME} MATCHES "Android")
 add_custom_target(rocksdbjava ALL
         COMMAND ${CMAKE_COMMAND} -E copy ${ROCKS_JAR_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}
-        COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C $<TARGET_FILE_DIR:${ROCKSDBJNI_STATIC_LIB}> $<TARGET_FILE_NAME:${ROCKSDBJNI_STATIC_LIB}>
+        COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C $<TARGET_FILE_DIR:${ROCKSDBJNI_SHARED_LIB}> $<TARGET_FILE_NAME:${ROCKSDBJNI_SHARED_LIB}>
         COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C ${CMAKE_CURRENT_SOURCE_DIR} HISTORY-JAVA.md
         DEPENDS ${ROCKSDBJNI_STATIC_LIB} rocksdbjni_classes
         BYPRODUCTS ${ROCKSDB_JAR}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         )
+else ()
+    add_custom_target(rocksdbjava ALL
+            COMMAND ${CMAKE_COMMAND} -E copy ${ROCKS_JAR_FILE} ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR}
+            COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C $<TARGET_FILE_DIR:${ROCKSDBJNI_STATIC_LIB}> $<TARGET_FILE_NAME:${ROCKSDBJNI_STATIC_LIB}>
+            COMMAND ${Java_JAR_EXECUTABLE} -uf ${CMAKE_CURRENT_BINARY_DIR}/${ROCKSDB_JAR} -C ${CMAKE_CURRENT_SOURCE_DIR} HISTORY-JAVA.md
+            DEPENDS ${ROCKSDBJNI_STATIC_LIB} rocksdbjni_classes
+            BYPRODUCTS ${ROCKSDB_JAR}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+endif ()
 
 enable_testing()
 get_target_property(ROCKSDBJNI_CLASSES_TEST_JAR_FILE rocksdbjni_test_classes JAR_FILE)
